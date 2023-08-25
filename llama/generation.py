@@ -102,7 +102,7 @@ class Llama:
         self.model = model
         self.tokenizer = tokenizer
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def generate(
         self,
         prompt_tokens: List[List[int]],
