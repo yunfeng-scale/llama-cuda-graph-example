@@ -46,7 +46,7 @@ def benchmark(
         schedule=benchmark_schedule,
         on_trace_ready=torch.profiler.tensorboard_trace_handler(f'./log_cudagraph_{use_cuda_graph}'),
         record_shapes=True,
-    ) if profile else nullcontext as prof:
+    ) if profile else nullcontext() as prof:
         for i in range(test_iterations):
             print(f'Benchmark iteration {i}')
             result = generator.text_completion([prompt], use_cuda_graph=use_cuda_graph)
