@@ -30,6 +30,8 @@ def benchmark(
     # Sample prompt for warmup and benchmarking
     prompt = "The theory of everything is"
 
+    print(f"{use_cuda_graph=}")
+
     # Warmup Iterations
     for i in range(warmup_iterations):
         print(f"Warmup iteration {i}")

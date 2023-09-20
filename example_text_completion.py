@@ -39,18 +39,18 @@ def main(
         plush girafe => girafe peluche
         cheese =>""",
     ]
-    results = []
-    for prompt in prompts:
-        results.append(generator.text_completion(
-            [prompt],
+    for i in range(4, 0, -1):
+        print(f"running with batch size {i}")
+        results = generator.text_completion(
+            prompts[:i],
             max_gen_len=max_gen_len,
             temperature=temperature,
             top_p=top_p,
-        )[0])
-    for prompt, result in zip(prompts, results):
-        print(prompt)
-        print(f"> {result['generation']}")
-        print("\n==================================\n")
+        )
+        for prompt, result in zip(prompts[:i], results):
+            print(prompt)
+            print(f"> {result['generation']}")
+            print("\n==================================\n")
 
 
 if __name__ == "__main__":

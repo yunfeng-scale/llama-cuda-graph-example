@@ -6,7 +6,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple, TypedDict
+from typing import List, Literal, Optional, Tuple, TypedDict, Dict
 
 import torch
 import torch.nn.functional as F
@@ -111,26 +111,42 @@ class Llama:
     def _compile_model(self, tokens_sliced : torch.Tensor, mask : torch.Tensor, valid_seq_pos : torch.Tensor):
         assert self._cuda_graph is None and self._compiled_inputs is None and self._compiled_logits is None, "Already compiled the model"
 
-        self._compiled_inputs = tuple(v.clone() for v in (tokens_sliced, mask, valid_seq_pos))
+        print("recording CUDA graph")
 
-        s = torch.cuda.Stream()
-        s.wait_stream(torch.cuda.current_stream())
-        with torch.cuda.stream(s):
-            _ = self.model.forward(*self._compiled_inputs)
-        torch.cuda.current_stream().wait_stream(s)
+        # warm up. but why?
+        # s = torch.cuda.Stream()
+        # print(f"{s.device=}")
+        # print(f"{torch.cuda.current_stream().device=}")
+        # s.wait_stream(torch.cuda.current_stream())
+        # with torch.cuda.stream(s):
+        #     _ = self.model.forward(*self._compiled_inputs)
+        # torch.cuda.current_stream().wait_stream(s)
 
-        self._cuda_graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(self._cuda_graph):
-            self._compiled_logits = self.model.forward(*self._compiled_inputs)
+        self._cuda_graph: Dict[int, torch.cuda.CUDAGraph] = {}
+        self._compiled_inputs: Dict[int, Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+        self._compiled_logits: Dict[int, torch.Tensor] = {}
 
-        def replay(tokens, mask, valid_seq_pos):
-            self._compiled_inputs[0].copy_(tokens)
-            self._compiled_inputs[1].copy_(mask)
-            self._compiled_inputs[2].copy_(valid_seq_pos)
+        batch_size = tokens_sliced.shape[0]
+        for i in range(batch_size, 0, -1):
+            pool = None if i == batch_size else self._cuda_graph[batch_size].pool() # reusing memory pool
 
-            self._cuda_graph.replay()
+            self._cuda_graph[i] = torch.cuda.CUDAGraph()
 
-            return self._compiled_logits
+            self._compiled_inputs[i] = tuple(v[:i].clone() for v in (tokens_sliced, mask, valid_seq_pos))
+
+            with torch.cuda.graph(self._cuda_graph[i], pool=pool):
+                self._compiled_logits[i] = self.model.forward(*self._compiled_inputs[i])
+
+        print("record fininshed")
+
+        def replay(batch_size, tokens, mask, valid_seq_pos):
+            self._compiled_inputs[batch_size][0].copy_(tokens)
+            self._compiled_inputs[batch_size][1].copy_(mask)
+            self._compiled_inputs[batch_size][2].copy_(valid_seq_pos)
+
+            self._cuda_graph[batch_size].replay()
+
+            return self._compiled_logits[batch_size]
 
         return replay
 
@@ -150,12 +166,14 @@ class Llama:
                 bsz = tokens.shape[0]
                 if self.compiled_model is None:
                     if use_cuda_graph:
-                        assert bsz == 1, "Only support bs=1 for now"
                         self.compiled_model = self._compile_model(tokens_sliced, mask, valid_seq_pos)
                     else:
                         self.compiled_model = self.model.forward
+                else:
+                    if cur_pos - prev_pos == 1:
+                        print(f"using precompiled model batch size {bsz}")
 
-                logits = self.compiled_model(tokens=tokens_sliced, mask=mask, valid_seq_pos=valid_seq_pos)
+                logits = self.compiled_model(batch_size=bsz, tokens=tokens_sliced, mask=mask, valid_seq_pos=valid_seq_pos)
 
         return logits
 

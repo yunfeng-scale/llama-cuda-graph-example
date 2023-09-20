@@ -164,6 +164,7 @@ class Attention(nn.Module):
         self.cache_k[:bsz, valid_seq_pos] = xk
         self.cache_v[:bsz, valid_seq_pos] = xv
 
+        # if condition only runs through the branch of seqlen == 1
         if seqlen == 1:
             keys = self.cache_k[:bsz]
             values = self.cache_v[:bsz]
@@ -179,6 +180,7 @@ class Attention(nn.Module):
         keys = keys.transpose(1, 2)
         values = values.transpose(1, 2)
         scores = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
+        # if condition only runs through the branch of mask is not None
         if mask is not None:
             scores = scores + mask  # (bs, n_local_heads, seqlen, cache_len + seqlen)
         scores = F.softmax(scores.float(), dim=-1).type_as(xq)
